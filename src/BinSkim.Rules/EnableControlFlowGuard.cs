@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Composition;
 using System.Reflection.PortableExecutable;
 
@@ -13,8 +14,8 @@ using Microsoft.CodeAnalysis.Sarif.Driver;
 
 namespace Microsoft.CodeAnalysis.IL.Rules
 {
-    [Export(typeof(ISkimmer<BinaryAnalyzerContext>)), Export(typeof(IRule))]
-    public class EnableControlFlowGuard : BinarySkimmerBase
+    [Export(typeof(ISkimmer<BinaryAnalyzerContext>)), Export(typeof(IRule)), Export(typeof(IOptionsProvider))]
+    public class EnableControlFlowGuard : BinarySkimmerBase, IOptionsProvider
     {
         /// <summary>
         /// BA2008
@@ -43,28 +44,40 @@ namespace Microsoft.CodeAnalysis.IL.Rules
                 return new string[] {
                     nameof(RuleResources.BA2008_Pass),
                     nameof(RuleResources.BA2008_Error),
-                    nameof(RuleResources.NotApplicable_InvalidMetadata)
+                    nameof(RuleResources.NotApplicable_InvalidMetadata),
+                    nameof(RuleResources.BA2008_NotApplicable_UnsupportedKernelModeVersion)
                 };
             }
         }
 
-        public const UInt32 IMAGE_DLLCHARACTERISTICS_CONTROLFLOWGUARD = 0x4000;
-        public const UInt32 IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG = 10;
+        public IEnumerable<IOption> GetOptions()
+        {
+            return new List<IOption>
+            {
+                MinimumRequiredLinkerVersion
+            }.ToImmutableArray();
+        }
+
+        private const string AnalyzerName = RuleIds.EnableControlFlowGuardId + "." + nameof(EnableControlFlowGuard);
+
+        public static PerLanguageOption<Version> MinimumRequiredLinkerVersion { get; } =
+            new PerLanguageOption<Version>(
+                AnalyzerName, nameof(MinimumRequiredLinkerVersion), defaultValue: () => { return new Version("14.0"); });
+
         public const UInt32 IMAGE_GUARD_CF_INSTRUMENTED = 0x0100;
-        public const UInt32 IMAGE_GUARD_CF_FUNCTION_TABLE_PRESENT = 0x0400;
-        public const UInt32 IMAGE_GUARD_CF_CHECKS = IMAGE_GUARD_CF_INSTRUMENTED | IMAGE_GUARD_CF_FUNCTION_TABLE_PRESENT;
+        public const UInt32 IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG = 10;
         public const UInt32 IMAGE_LOAD_CONFIG_MINIMUM_SIZE_32 = 0x005C;
         public const UInt32 IMAGE_LOAD_CONFIG_MINIMUM_SIZE_64 = 0x0090;
+        public const UInt32 IMAGE_GUARD_CF_FUNCTION_TABLE_PRESENT = 0x0400;
+        public const UInt32 IMAGE_DLLCHARACTERISTICS_CONTROLFLOWGUARD = 0x4000;
 
-        public Version MinimumSupportedLinkerVersion = new Version("14.0");
+        public const UInt32 IMAGE_GUARD_CF_CHECKS = 
+            IMAGE_GUARD_CF_INSTRUMENTED | IMAGE_GUARD_CF_FUNCTION_TABLE_PRESENT;
         
         public override AnalysisApplicability CanAnalyze(BinaryAnalyzerContext context, out string reasonForNotAnalyzing)
         {
             PE portableExecutable = context.PE;
             AnalysisApplicability result = AnalysisApplicability.NotApplicableToSpecifiedTarget;
-
-            reasonForNotAnalyzing = MetadataConditions.ImageIsKernelModeBinary;
-            if (portableExecutable.IsKernelMode) { return result; }
 
             reasonForNotAnalyzing = MetadataConditions.ImageIsResourceOnlyBinary;
             if (portableExecutable.IsResourceOnly) { return result; }
@@ -72,12 +85,23 @@ namespace Microsoft.CodeAnalysis.IL.Rules
             reasonForNotAnalyzing = MetadataConditions.ImageIsILOnlyManagedAssembly;
             if (portableExecutable.IsILOnly) { return result; }
 
-            if (portableExecutable.LinkerVersion < MinimumSupportedLinkerVersion)
+            reasonForNotAnalyzing = MetadataConditions.ImageIsMixedModeBinary;
+            if (portableExecutable.IsMixedMode) { return result; }
+
+            reasonForNotAnalyzing = MetadataConditions.ImageIsKernelModeAndNot64Bit_CfgUnsupported;
+            if (portableExecutable.IsKernelMode && !portableExecutable.Is64Bit) { return result; }
+
+            reasonForNotAnalyzing = MetadataConditions.ImageIsBootBinary;
+            if (portableExecutable.IsBoot) { return result; }
+
+            Version minimumRequiredLinkerVersion = context.Policy.GetProperty(MinimumRequiredLinkerVersion);
+
+            if (portableExecutable.LinkerVersion < minimumRequiredLinkerVersion)
             {
                 reasonForNotAnalyzing = string.Format(
                     MetadataConditions.ImageCompiledWithOutdatedTools,                    
-                    portableExecutable.LinkerVersion, 
-                    MinimumSupportedLinkerVersion);
+                    portableExecutable.LinkerVersion,
+                    minimumRequiredLinkerVersion);
 
                 return result;
             }
@@ -88,6 +112,21 @@ namespace Microsoft.CodeAnalysis.IL.Rules
 
         public override void Analyze(BinaryAnalyzerContext context)
         {
+            PE pe = context.PE;
+
+            if (pe.IsKernelMode &&
+                (pe.FileVersion.FileMajorPart < 10 || pe.FileVersion.FileBuildPart < 15000) &&
+                pe.FileVersion.FileBuildPart < 15000)
+            {
+                // '{0}' is a kernel mode portable executable compiled for a 
+                // version of Windows that does not support the control flow
+                // guard feature for kernel mode binaries.
+                context.Logger.Log(this,
+                    RuleUtilities.BuildResult(ResultLevel.NotApplicable, context, null,
+                        nameof(RuleResources.BA2008_NotApplicable_UnsupportedKernelModeVersion),
+                            context.TargetUri.GetFileName()));
+            }
+
             if (!EnablesControlFlowGuard(context))
             {
                 // '{0}' does not enable the control flow guard (CFG) mitigation. 
@@ -158,7 +197,6 @@ namespace Microsoft.CodeAnalysis.IL.Rules
                     return true;
                 }
             }
-
             return false;
         }
     }

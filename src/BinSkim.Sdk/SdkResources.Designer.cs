@@ -79,7 +79,7 @@ namespace Microsoft.CodeAnalysis.IL.Sdk {
         }
         
         /// <summary>
-        ///   Looks up a localized string similar to image was compiled with a toolset version ({0}) that is not sufficiently recent ({1} or newer) to provide relevant settings..
+        ///   Looks up a localized string similar to image was compiled with a toolset version ({0}) that is not sufficiently recent ({1} or newer) to provide relevant settings.
         /// </summary>
         internal static string MetadataCondition_ImageCompiledWithOutdatedTools {
             get {
@@ -93,6 +93,15 @@ namespace Microsoft.CodeAnalysis.IL.Sdk {
         internal static string MetadataCondition_ImageIs64BitBinary {
             get {
                 return ResourceManager.GetString("MetadataCondition_ImageIs64BitBinary", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to image is a boot binary.
+        /// </summary>
+        internal static string MetadataCondition_ImageIsBootBinary {
+            get {
+                return ResourceManager.GetString("MetadataCondition_ImageIsBootBinary", resourceCulture);
             }
         }
         
@@ -111,6 +120,15 @@ namespace Microsoft.CodeAnalysis.IL.Sdk {
         internal static string MetadataCondition_ImageIsILOnlyManagedAssembly {
             get {
                 return ResourceManager.GetString("MetadataCondition_ImageIsILOnlyManagedAssembly", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to image is not 64-bit (the only architecture that enables CFG for kernel mode binaries).
+        /// </summary>
+        internal static string MetadataCondition_ImageIsKernelModeAndNot64Bit_CfgUnsupported {
+            get {
+                return ResourceManager.GetString("MetadataCondition_ImageIsKernelModeAndNot64Bit_CfgUnsupported", resourceCulture);
             }
         }
         
@@ -142,6 +160,15 @@ namespace Microsoft.CodeAnalysis.IL.Sdk {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to image is a mixed mode binary.
+        /// </summary>
+        internal static string MetadataCondition_ImageIsMixedModeBinary {
+            get {
+                return ResourceManager.GetString("MetadataCondition_ImageIsMixedModeBinary", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to image is not a 32-bit binary.
         /// </summary>
         internal static string MetadataCondition_ImageIsNot32BitBinary {
@@ -160,6 +187,15 @@ namespace Microsoft.CodeAnalysis.IL.Sdk {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to image is not an executable program.
+        /// </summary>
+        internal static string MetadataCondition_ImageIsNotExe {
+            get {
+                return ResourceManager.GetString("MetadataCondition_ImageIsNotExe", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to image is not signed .
         /// </summary>
         internal static string MetadataCondition_ImageIsNotSigned {
@@ -171,9 +207,9 @@ namespace Microsoft.CodeAnalysis.IL.Sdk {
         /// <summary>
         ///   Looks up a localized string similar to image is a pre-version 7 Windows CE binary.
         /// </summary>
-        internal static string MetadataCondition_ImageIsPreV7WindowsCEBinary {
+        internal static string MetadataCondition_ImageIsPreVersion7WindowsCEBinary {
             get {
-                return ResourceManager.GetString("MetadataCondition_ImageIsPreV7WindowsCEBinary", resourceCulture);
+                return ResourceManager.GetString("MetadataCondition_ImageIsPreVersion7WindowsCEBinary", resourceCulture);
             }
         }
         

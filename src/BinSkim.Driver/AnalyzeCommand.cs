@@ -3,14 +3,14 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
 
 using Microsoft.CodeAnalysis.BinaryParsers.ProgramDatabase;
 using Microsoft.CodeAnalysis.IL.Rules;
 using Microsoft.CodeAnalysis.IL.Sdk;
-using Microsoft.CodeAnalysis.Sarif.Driver;
 using Microsoft.CodeAnalysis.Sarif;
-using System.Diagnostics;
+using Microsoft.CodeAnalysis.Sarif.Driver;
 
 namespace Microsoft.CodeAnalysis.IL
 {
@@ -36,9 +36,9 @@ namespace Microsoft.CodeAnalysis.IL
         private IEnumerable<string> _plugInFilePaths;
 
 
-        public override void ConfigureFromOptions(BinaryAnalyzerContext context, AnalyzeOptions analyzeOptions)
+        protected override void InitializeConfiguration(AnalyzeOptions analyzeOptions, BinaryAnalyzerContext context)
         {
-            base.ConfigureFromOptions(context, analyzeOptions);
+            base.InitializeConfiguration(analyzeOptions, context);
 
             if (!string.IsNullOrEmpty(analyzeOptions.SymbolsPath))
             {
@@ -55,6 +55,19 @@ namespace Microsoft.CodeAnalysis.IL
             {
                 AnalyzeManagedAssembly(context.TargetUri.LocalPath, _plugInFilePaths, context);
             }
+        }
+
+        public override int Run(AnalyzeOptions analyzeOptions)
+        {
+            int result = base.Run(analyzeOptions);
+
+            // In BinSkim, no rule is ever applicable to every target type. For example,
+            // we have checks that are only relevant to either 32-bit or 64-bit binaries.
+            // Because of this, the return code bit for RuleNotApplicableToTarget is not
+            // interesting (it will always be set). 
+            return analyzeOptions.RichReturnCode 
+                ? (int)((uint)result & (uint)~RuntimeConditions.RuleNotApplicableToTarget) 
+                : result;
         }
 
         private void AnalyzeManagedAssembly(string assemblyFilePath, IEnumerable<string> roslynAnalyzerFilePaths, BinaryAnalyzerContext context)

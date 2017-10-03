@@ -54,8 +54,6 @@ namespace Microsoft.CodeAnalysis.IL.Rules
             }
         }
 
-        private static readonly Version s_winCeVersion70 = new Version(7, 0);
-
         public override AnalysisApplicability CanAnalyze(BinaryAnalyzerContext context, out string reasonForNotAnalyzing)
         {
             PE portableExecutable = context.PE;
@@ -63,6 +61,9 @@ namespace Microsoft.CodeAnalysis.IL.Rules
 
             reasonForNotAnalyzing = MetadataConditions.ImageIsNot64BitBinary;
             if (context.PE.PEHeaders.PEHeader.Magic != PEMagic.PE32Plus) { return result; }
+
+            reasonForNotAnalyzing = MetadataConditions.ImageIsILOnlyManagedAssembly;
+            if (portableExecutable.IsILOnly) { return result; }
 
             reasonForNotAnalyzing = MetadataConditions.ImageIsKernelModeBinary;
             if (portableExecutable.IsKernelMode) { return result; }

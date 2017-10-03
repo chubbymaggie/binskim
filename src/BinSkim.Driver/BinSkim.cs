@@ -4,6 +4,13 @@
 using Microsoft.CodeAnalysis.Sarif.Driver;
 
 using CommandLine;
+using System.Collections.Generic;
+using System;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using Microsoft.CodeAnalysis.Sarif.Driver.Sdk;
+using Microsoft.CodeAnalysis.Sarif;
 
 namespace Microsoft.CodeAnalysis.IL
 {
@@ -11,6 +18,12 @@ namespace Microsoft.CodeAnalysis.IL
     {        
         private static int Main(string[] args)
         {
+            args = EntryPointUtilities.GenerateArguments(args, new FileSystem(), new EnvironmentVariables());
+
+            List<string> rewrittenArgs = new List<string>(args);
+            
+            bool richResultCode = rewrittenArgs.RemoveAll(arg => arg.Equals("--rich-return-code")) == 0;
+
             return Parser.Default.ParseArguments<
                 AnalyzeOptions,
                 ExportRulesMetadataOptions,
@@ -21,7 +34,7 @@ namespace Microsoft.CodeAnalysis.IL
                 (ExportRulesMetadataOptions exportRulesMetadataOptions) => new ExportRulesMetadataCommand().Run(exportRulesMetadataOptions),
                 (ExportConfigurationOptions exportConfigurationOptions) => new ExportConfigurationCommand().Run(exportConfigurationOptions),
                 (DumpOptions dumpOptions) => new DumpCommand().Run(dumpOptions),
-                errs => 1);
+                errs => richResultCode ? (int)RuntimeConditions.InvalidCommandLineOption : 1);
         }
     }
 }

@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -13,20 +14,21 @@ namespace Microsoft.CodeAnalysis.BinaryParsers.PortableExecutable
 {
     public class PE : IDisposable
     {
-        internal SafePointer m_pImage;		// pointer to the beginning of the file in memory
-        private string[] _asImports;
+        private long? _length;
         private string _sha1Hash;
         private string _sha256Hash;
-        private long? _length;
-        private string _versionDetails;
-        private string _version;
-        private bool? _isResourceOnly = null;
-        private bool? _isManagedResourceOnly;
+        private string[] _asImports;
         private bool? _isKernelMode;
+        private bool? _isResourceOnly;
+        private FileVersionInfo _version;
+        private bool? _isManagedResourceOnly;
+        private bool? _isBoot;
 
         private FileStream _fs;
         private PEReader _peReader;
+        internal SafePointer m_pImage; // pointer to the beginning of the file in memory
         private MetadataReader _metadataReader;
+
         public PE(string fileName)
         {
             FileName = Path.GetFullPath(fileName);
@@ -296,44 +298,22 @@ namespace Microsoft.CodeAnalysis.BinaryParsers.PortableExecutable
             }
         }
 
-        /// <summary>
-        /// File Version details string
-        /// </summary>
-        public string FileVersionDetails
-        {
-            get
-            {
-                if (_versionDetails == null)
-                {
-                    UpdateVersionInformation();
-                }
-
-                return _versionDetails;
-            }
-        }
 
         /// <summary>
-        /// File version
+        /// Windows OS file version information
         /// </summary>
-        public string FileVersion
+        public FileVersionInfo FileVersion
         {
             get
             {
                 if (_version == null)
                 {
-                    UpdateVersionInformation();
+                    _version = FileVersionInfo.GetVersionInfo(Path.GetFullPath(FileName));
                 }
                 return _version;
             }
         }
-    
-        private void UpdateVersionInformation()
-        {
-            System.Diagnostics.FileVersionInfo fvi = System.Diagnostics.FileVersionInfo.GetVersionInfo(Path.GetFullPath(FileName));
-
-            _versionDetails = RemoveUnprintableChars(fvi.ToString());
-            _version = RemoveUnprintableChars(fvi.FileVersion);
-        }
+   
 
         public Packer Packer
         {
@@ -382,6 +362,18 @@ namespace Microsoft.CodeAnalysis.BinaryParsers.PortableExecutable
         }
 
         /// <summary>
+        /// Returns true if the PE is a mixed mode assembly
+        /// </summary>
+        public bool IsMixedMode
+        {
+            get
+            {
+                return PEHeaders.CorHeader != null &&
+                       (PEHeaders.CorHeader.Flags & CorFlags.ILOnly) == 0;
+            }
+        }
+
+        /// <summary>
         /// Returns true if the only directory present is Resource Directory (this also covers hxs and hxi files)
         /// </summary>
         public bool IsResourceOnly
@@ -406,7 +398,7 @@ namespace Microsoft.CodeAnalysis.BinaryParsers.PortableExecutable
                     return _isResourceOnly.Value;
                 }
 
-                // IMAGE_DIRECTORY_ENTRY_RESOURCE = 2;
+                // IMAGE_DIRECTORY_ENTRY_RESOURCE == 2
                 if (peHeader.ResourceTableDirectory.RelativeVirtualAddress == 0)
                 {
                     _isResourceOnly = false;
@@ -414,17 +406,26 @@ namespace Microsoft.CodeAnalysis.BinaryParsers.PortableExecutable
                 }
 
                 _isResourceOnly = 
-                       (peHeader.ThreadLocalStorageTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_TLS = 9;
-                        peHeader.ImportAddressTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_IAT = 12;
-                        peHeader.GlobalPointerTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_GLOBALPTR = 8;
-                        peHeader.DelayImportTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT = 13;
-                        peHeader.BoundImportTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT = 11;
-                        peHeader.LoadConfigTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG = 10;
-                        peHeader.CopyrightTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_ARCHITECTURE = 7;
-                        peHeader.ExceptionTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_EXCEPTION = 3;	
-                        peHeader.CorHeaderTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR 14
-                        peHeader.ExportTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_EXPORT = 0;
-                        peHeader.ImportTableDirectory.RelativeVirtualAddress == 0); // IMAGE_DIRECTORY_ENTRY_IMPORT = 1;                                                
+                       (peHeader.ThreadLocalStorageTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_TLS == 9
+                        peHeader.ImportAddressTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_IAT == 12
+                        peHeader.GlobalPointerTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_GLOBALPTR == 8
+                        peHeader.DelayImportTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT == 13
+                        peHeader.BoundImportTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT == 11
+                        peHeader.LoadConfigTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG == 10
+                        peHeader.CopyrightTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_ARCHITECTURE == 7
+                        peHeader.ExceptionTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_EXCEPTION == 3	
+                        peHeader.CorHeaderTableDirectory.RelativeVirtualAddress == 0 && // IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR == 14
+                        peHeader.ImportTableDirectory.RelativeVirtualAddress == 0); // IMAGE_DIRECTORY_ENTRY_IMPORT == 1
+
+                if (_isResourceOnly.Value &&
+                    peHeader.ExportTableDirectory.RelativeVirtualAddress != 0 && // IMAGE_DIRECTORY_ENTRY_EXPORT = 0;
+                    peHeader.SizeOfCode > 0)
+                {
+                    // We require special checks in the event of a non-zero export table directory value
+                    // If the binary only contains forwarders, we should regard it as not containing code
+                    _isResourceOnly = false;
+                }
+                   
 
                 return _isResourceOnly.Value;
 
@@ -432,14 +433,14 @@ namespace Microsoft.CodeAnalysis.BinaryParsers.PortableExecutable
                 // only binaries. We've seen cases where help resource-only DLLs had a bogus
                 // non-empty relocation section. Security digital signatures are ok.
                 //
-                // IMAGE_DIRECTORY_ENTRY_DEBUG = 6;	// Debug Directory
+                // IMAGE_DIRECTORY_ENTRY_SECURITY  = 4;	// Security Directory
                 // IMAGE_DIRECTORY_ENTRY_BASERELOC = 5;	// Base Relocation Table
-                // IMAGE_DIRECTORY_ENTRY_SECURITY = 4;	// Security Directory
+                // IMAGE_DIRECTORY_ENTRY_DEBUG     = 6; // Debug Directory
             }
         }
 
         /// <summary>
-        /// Returns true is the assembly is pure managed and doesn't have any methods
+        /// Returns true if the assembly is pure managed and has no methods
         /// </summary>
         public bool IsManagedResourceOnly
         {
@@ -521,6 +522,35 @@ namespace Microsoft.CodeAnalysis.BinaryParsers.PortableExecutable
             }
         }
 
+        public bool IsBoot
+        {
+            get
+            {
+                if(_isBoot != null)
+                {
+                    return (bool)_isBoot;
+                }
+
+                _isBoot = false;
+
+                if (PEHeaders.PEHeader != null)
+                {
+                    //
+                    // Currently SubsystemVersion is an optional field but I would hope we can use this in the future
+                    //
+                    //Version ssVer = this.SubsystemVersion;
+
+                    _isBoot =   this.Subsystem == Subsystem.EfiApplication ||
+                                this.Subsystem == Subsystem.EfiBootServiceDriver ||
+                                this.Subsystem == Subsystem.EfiRom ||
+                                this.Subsystem == Subsystem.EfiRuntimeDriver ||
+                                (int)this.Subsystem == 16; // BOOT_APPLICATION
+                }
+
+                return _isBoot.Value;
+            }
+        }
+
         /// <summary>
         /// Machine type
         /// </summary>
@@ -583,7 +613,7 @@ namespace Microsoft.CodeAnalysis.BinaryParsers.PortableExecutable
 
                 if (optionalHeader != null)
                 {
-                    UInt16 major = optionalHeader.MajorImageVersion;
+                    UInt16 major = optionalHeader.MajorSubsystemVersion;
                     UInt16 minor = optionalHeader.MinorSubsystemVersion;
 
                     return new Version(major, minor);
@@ -612,34 +642,6 @@ namespace Microsoft.CodeAnalysis.BinaryParsers.PortableExecutable
 
                 return null;
             }
-        }
-
-
-        /// <summary>
-        /// Remove all characters <0x20
-        /// </summary>
-        /// <param name="s"></param>
-        /// <returns></returns>
-        private static string RemoveUnprintableChars(string s)
-        {
-            if (s == null)
-            {
-                return null;
-            }
-
-            StringBuilder sb = new StringBuilder();
-
-            for (int i = 0; i < s.Length; i++)
-            {
-                char c = s[i];
-
-                if (c >= 0x20)
-                {
-                    sb.Append(c);
-                }
-            }
-
-            return sb.ToString();
         }
     }
 }

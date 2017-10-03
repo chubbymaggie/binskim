@@ -167,7 +167,8 @@ namespace Microsoft.CodeAnalysis.IL.Rules
         private void VerifyNotApplicable(
             IBinarySkimmer skimmer,
             HashSet<string> notApplicableConditions,
-            AnalysisApplicability expectedApplicability = AnalysisApplicability.NotApplicableToSpecifiedTarget)
+            AnalysisApplicability expectedApplicability = AnalysisApplicability.NotApplicableToSpecifiedTarget,
+            bool useDefaultPolicy = false)
         {
             string ruleName = skimmer.GetType().Name;
             string testFilesDirectory = ruleName;
@@ -205,6 +206,11 @@ namespace Microsoft.CodeAnalysis.IL.Rules
                 context = CreateContext(logger, null, target);
                 if (!context.PE.IsPEFile) { continue; }
 
+                if (useDefaultPolicy)
+                {
+                    context.Policy = new PropertiesDictionary();
+                }
+
                 context.Rule = skimmer;
 
                 string reasonForNotAnalyzing;
@@ -235,6 +241,14 @@ namespace Microsoft.CodeAnalysis.IL.Rules
             Assert.True(Directory.Exists(testFilesDirectory));
             HashSet<string> result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+            if (metadataConditions.Contains(MetadataConditions.ImageIsNotExe))
+            {
+                result.Add(Path.Combine(testFilesDirectory, "Native_x64_VS2013_Default.dll"));
+                result.Add(Path.Combine(testFilesDirectory, "MixedMode_x64_VS2013_Default.dll"));
+                result.Add(Path.Combine(testFilesDirectory, "ManagedResourcesOnly.dll"));
+                result.Add(Path.Combine(testFilesDirectory, "Managed_x86_VS2015_FSharp.dll"));
+            }
+
             if (metadataConditions.Contains(MetadataConditions.CouldNotLoadPdb))
             {
                 result.Add(Path.Combine(testFilesDirectory, "MixedMode_x64_VS2013_NoPdb.exe"));
@@ -245,11 +259,25 @@ namespace Microsoft.CodeAnalysis.IL.Rules
             {
                 result.Add(Path.Combine(testFilesDirectory, "Native_x64_VS2013_Default.dll"));
                 result.Add(Path.Combine(testFilesDirectory, "MixedMode_x64_VS2013_Default.dll"));
+                result.Add(Path.Combine(testFilesDirectory, "Managed_x64_VS2015_FSharp.exe.exe"));
             }
 
             if (metadataConditions.Contains(MetadataConditions.ImageIsILOnlyManagedAssembly))
             {
                 result.Add(Path.Combine(testFilesDirectory, "Managed_x86_VS2013_Wpf.exe"));
+                result.Add(Path.Combine(testFilesDirectory, "Managed_x86_VS2015_FSharp.dll"));
+                result.Add(Path.Combine(testFilesDirectory, "Managed_x64_VS2015_FSharp.exe.exe"));
+            }
+
+            if (metadataConditions.Contains(MetadataConditions.ImageIsMixedModeBinary))
+            {
+                result.Add(Path.Combine(testFilesDirectory, "MixedMode_x64_VS2013_Default.dll"));
+                result.Add(Path.Combine(testFilesDirectory, "MixedMode_x64_VS2013_NoPdb.exe"));
+                result.Add(Path.Combine(testFilesDirectory, "MixedMode_x86_VS2013_Default.exe"));
+                result.Add(Path.Combine(testFilesDirectory, "MixedMode_x86_VS2013_MissingPdb.dll"));
+
+                result.Add(Path.Combine(testFilesDirectory, "MixedMode_x64_VS2015_Default.exe"));
+                result.Add(Path.Combine(testFilesDirectory, "MixedMode_x86_VS2015_Default.exe"));
             }
 
             if (metadataConditions.Contains(MetadataConditions.ImageIsKernelModeBinary))
@@ -273,6 +301,7 @@ namespace Microsoft.CodeAnalysis.IL.Rules
                 result.Add(Path.Combine(testFilesDirectory, "MixedMode_x64_VS2013_Default.dll"));
                 result.Add(Path.Combine(testFilesDirectory, "Native_x64_VS2013_Default.dll"));
                 result.Add(Path.Combine(testFilesDirectory, "Uwp_ARM_VS2015_DefaultBlankApp.dll"));
+                result.Add(Path.Combine(testFilesDirectory, "Managed_x64_VS2015_FSharp.exe"));
             }
 
             if (metadataConditions.Contains(MetadataConditions.ImageIsNot64BitBinary))
@@ -391,6 +420,7 @@ namespace Microsoft.CodeAnalysis.IL.Rules
         public void EnableHighEntropyVirtualAddresses_NotApplicable()
         {
             HashSet<string> notApplicableTo = new HashSet<string>();
+            notApplicableTo.Add(MetadataConditions.ImageIsNotExe);
             notApplicableTo.Add(MetadataConditions.ImageIsNot64BitBinary);
             notApplicableTo.Add(MetadataConditions.ImageIsKernelModeBinary);
 
@@ -460,7 +490,7 @@ namespace Microsoft.CodeAnalysis.IL.Rules
             HashSet<string> notApplicableTo = new HashSet<string>();
             notApplicableTo.Add(MetadataConditions.ImageIsNot64BitBinary);
             notApplicableTo.Add(MetadataConditions.ImageIsKernelModeBinary);
-            notApplicableTo.Add(MetadataConditions.ImageIsResourceOnlyBinary);
+            notApplicableTo.Add(MetadataConditions.ImageIsILOnlyManagedAssembly);
 
             VerifyNotApplicable(new LoadImageAboveFourGigabyteAddress(), notApplicableTo);
         }
@@ -516,7 +546,7 @@ namespace Microsoft.CodeAnalysis.IL.Rules
             notApplicableTo.Add(MetadataConditions.ImageIsResourceOnlyBinary);
             notApplicableTo.Add(MetadataConditions.ImageIsXBoxBinary);
 
-            VerifyNotApplicable(new DoNotShipVulnerableBinaries(), notApplicableTo, AnalysisApplicability.NotApplicableDueToMissingConfiguration);
+            VerifyNotApplicable(new DoNotShipVulnerableBinaries(), notApplicableTo, AnalysisApplicability.ApplicableToSpecifiedTarget);
         }
 
         [Fact]
@@ -623,7 +653,7 @@ namespace Microsoft.CodeAnalysis.IL.Rules
 
             HashSet<string> applicableTo = new HashSet<string>();
             applicableTo.Add(MetadataConditions.ImageIs64BitBinary);
-            VerifyNotApplicable(new DoNotDisableStackProtectionForFunctions(), applicableTo, AnalysisApplicability.NotApplicableDueToMissingConfiguration);
+            VerifyNotApplicable(new DoNotDisableStackProtectionForFunctions(), applicableTo, AnalysisApplicability.ApplicableToSpecifiedTarget);
         }
 
         [Fact]
@@ -654,19 +684,23 @@ namespace Microsoft.CodeAnalysis.IL.Rules
 
             HashSet<string> applicableTo = new HashSet<string>();
             applicableTo.Add(MetadataConditions.ImageIs64BitBinary);
-            VerifyNotApplicable(new EnableCriticalCompilerWarnings(), applicableTo, AnalysisApplicability.NotApplicableDueToMissingConfiguration);
+
+            VerifyNotApplicable(
+                new EnableCriticalCompilerWarnings(), 
+                applicableTo, 
+                AnalysisApplicability.ApplicableToSpecifiedTarget);
         }
 
         [Fact]
         public void EnableControlFlowGuard_Fail()
         {
-            VerifyFail(new EnableControlFlowGuard());
+            VerifyFail(new EnableControlFlowGuard(), useDefaultPolicy : true);
         }
 
         [Fact]
         public void EnableControlFlowGuard_Pass()
         {
-            VerifyPass(new EnableControlFlowGuard());
+            VerifyPass(new EnableControlFlowGuard(), useDefaultPolicy : true);
         }
 
         [Fact]
@@ -674,11 +708,12 @@ namespace Microsoft.CodeAnalysis.IL.Rules
         {
             HashSet<string> notApplicableTo = new HashSet<string>();
 
+            notApplicableTo.Add(MetadataConditions.ImageIsMixedModeBinary);
             notApplicableTo.Add(MetadataConditions.ImageIsKernelModeBinary);
-            notApplicableTo.Add(MetadataConditions.ImageIsILOnlyManagedAssembly);
             notApplicableTo.Add(MetadataConditions.ImageIsResourceOnlyBinary);
+            notApplicableTo.Add(MetadataConditions.ImageIsILOnlyManagedAssembly);
 
-            VerifyNotApplicable(new EnableControlFlowGuard(), notApplicableTo);
+            VerifyNotApplicable(new EnableControlFlowGuard(), notApplicableTo, useDefaultPolicy : true);
         }
 
         [Fact]
@@ -736,7 +771,7 @@ namespace Microsoft.CodeAnalysis.IL.Rules
 
             HashSet<string> applicableTo = new HashSet<string>();
             applicableTo.Add(MetadataConditions.ImageIs64BitBinary);
-            VerifyNotApplicable(new DoNotIncorporateVulnerableDependencies(), applicableTo, AnalysisApplicability.NotApplicableDueToMissingConfiguration);
+            VerifyNotApplicable(new DoNotIncorporateVulnerableDependencies(), applicableTo, AnalysisApplicability.ApplicableToSpecifiedTarget);
         }
 
         [Fact]
